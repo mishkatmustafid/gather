@@ -4,7 +4,7 @@ FROM events e
 LEFT JOIN rsvps r ON r.event_id = e.id
 WHERE e.starts_at >= now()
 GROUP BY e.id
-ORDER BY e.id
+ORDER BY e.starts_at
 LIMIT 20;
 
 -- 2. Events Amira is attending (title, starts_at, host's display_name)
@@ -23,4 +23,4 @@ SELECT e.id, e.title, e.capacity, COUNT(r.user_id) AS going
 FROM events e
 JOIN rsvps r ON r.event_id = e.id
 GROUP BY e.id
-HAVING COUNT(r.user_id) = e.capacity;
+HAVING COUNT(r.user_id) >= e.capacity;
