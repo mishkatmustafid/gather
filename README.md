@@ -12,8 +12,8 @@ Gather is a full-stack practice build covering relational schema design, migrati
 | ------------ | ---------------------------------------------------------------- | ------- |
 | 1. Skeleton  | Repo, Docker Postgres, FastAPI `/health`, React app, deploys     | ✅ Done |
 | 2. Database  | Models, constraints, Alembic migrations, seed data, practice SQL | ✅ Done |
-| 3. REST API  | Events CRUD, search, pagination, error format                    | ⏳ Next |
-| 4. Auth      | Register, login, JWT, ownership rules, RSVPs                     | ⏳      |
+| 3. REST API  | Events CRUD, search, pagination, error format                    | ✅ Done |
+| 4. Auth      | Register, login, JWT, ownership rules, RSVPs                     | ⏳ Next |
 | 5. Frontend  | Event list, detail, forms, auth flow                             | ⏳      |
 | 6. Hardening | Tests, CI, automatic migrations on deploy                        | ⏳      |
 
@@ -56,6 +56,7 @@ erDiagram
     text password_hash
     text display_name
     timestamptz created_at
+    timestamptz updated_at
   }
   EVENTS {
     uuid id PK
@@ -73,6 +74,7 @@ erDiagram
     uuid user_id PK, FK
     uuid event_id PK, FK
     timestamptz created_at
+    timestamptz updated_at
   }
 ```
 
@@ -84,6 +86,53 @@ Rules enforced by the database itself, not only in application code:
 - Titles are 3–120 characters, events end after they start, and capacity is greater than zero (check constraints).
 - `events.starts_at` is indexed for upcoming-event queries.
 
+## API
+
+Full interactive docs are served at `/docs`. [`api/requests.http`](api/requests.http) has ready-to-run example requests for the VS Code REST Client or JetBrains HTTP client.
+
+### Events
+
+| Method   | Path           | Description                                                                 | Success |
+| -------- | -------------- | --------------------------------------------------------------------------- | ------- |
+| `GET`    | `/events`      | List events, ordered by start time                                          | 200     |
+| `GET`    | `/events/{id}` | One event, including its RSVP count                                         | 200     |
+| `POST`   | `/events`      | Create an event; the response has a `Location` header pointing at the event | 201     |
+| `PATCH`  | `/events/{id}` | Update only the fields sent                                                 | 200     |
+| `DELETE` | `/events/{id}` | Delete an event and its RSVPs                                               | 204     |
+
+`GET /events` accepts these query parameters:
+
+| Parameter | Default | Description                                                     |
+| --------- | ------- | --------------------------------------------------------------- |
+| `q`       | —       | Case-insensitive search in title and location                   |
+| `from`    | —       | Only events starting at or after this time (ISO 8601)           |
+| `limit`   | `20`    | Page size, 1–50                                                 |
+| `offset`  | `0`     | Number of events to skip                                        |
+
+It returns a page:
+
+```json
+{ "items": [ { "id": "…", "title": "Board games night", "rsvp_count": 0, "…": "…" } ], "total": 42, "limit": 20, "offset": 0 }
+```
+
+Validation rules for create and update: the title is 3–120 characters, the location is 1–200 characters, capacity is 1–10,000, and `starts_at` and `ends_at` must include a timezone, with the end after the start. `PATCH` checks the end-after-start rule against the event's values after the update is applied.
+
+> Until milestone 4, new events are owned by the first user in the database, any client can edit or delete any event, and `i_am_going` is always `false`.
+
+### Errors
+
+Every error uses the same shape:
+
+```json
+{ "error": { "code": "validation_error", "message": "Some fields are invalid.", "fields": { "title": "String should have at least 3 characters" } } }
+```
+
+| Status | `code`             | When                                                                                                |
+| ------ | ------------------ | --------------------------------------------------------------------------------------------------- |
+| 404    | `event_not_found`  | No event has that id                                                                                |
+| 409    | `conflict`         | The change breaks a database constraint                                                             |
+| 422    | `validation_error` | The request is invalid; `fields` maps each invalid field to its message, and `_form` holds errors that involve several fields |
+
 ## Repository layout
 
 ```
@@ -91,14 +140,20 @@ gather/
 ├─ docker-compose.yml        # local PostgreSQL 16
 ├─ api/
 │  ├─ app/
-│  │  ├─ main.py             # FastAPI app, CORS, /health
+│  │  ├─ main.py             # FastAPI app, CORS, routers, error handlers, /health
 │  │  ├─ config.py           # settings loaded from environment
 │  │  ├─ db.py               # engine, session factory, Base
-│  │  ├─ models.py           # User, Event, Rsvp
+│  │  ├─ deps.py             # per-request database session dependency
+│  │  ├─ errors.py           # AppError and the shared error response format
+│  │  ├─ models.py           # User, Event, RSVP
+│  │  ├─ schemas.py          # Pydantic request and response models
+│  │  ├─ routers/
+│  │  │  └─ events.py        # /events endpoints
 │  │  ├─ security.py         # Argon2 password hasher
 │  │  └─ seed.py             # local-only seed data
 │  ├─ migrations/            # Alembic environment and versions
 │  ├─ sql/practice.sql       # hand-written practice queries
+│  ├─ requests.http          # example API requests
 │  ├─ alembic.ini
 │  ├─ requirements.txt
 │  └─ .env.example
@@ -168,7 +223,7 @@ These exist only in the local database.
 | -------------- | ---------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL` | `postgresql+psycopg://gather:gather@localhost:5432/gather` | Yes    | In production, the Neon connection string with the `postgresql+psycopg://` prefix and `?sslmode=require`. |
 | `JWT_SECRET`   | `change-me`                                                | Yes    | Generate a real value for production: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.     |
-| `CORS_ORIGINS` | `http://localhost:5173`                                    | No     | Comma-separated list of allowed frontend origins, no trailing slash.                                      |
+| `CORS_ORIGINS` | `["http://localhost:5173"]`                                | No     | JSON list of allowed frontend origins, no trailing slashes. Defaults to `["http://localhost:5173"]`.      |
 
 ### Web (`web/.env`)
 
@@ -201,7 +256,7 @@ All commands run from `api/` with the virtual environment active.
 
 Merging to `main` redeploys both the API and the web app.
 
-The production database is not migrated automatically yet. `/health` does not use the database, so this does not affect the current deployment. Automatic migrations on deploy are planned for milestone 6.
+The production database is not migrated automatically yet. The `/events` endpoints need the current schema, so after merging a migration, apply it to Neon by hand: run `alembic upgrade head` from `api/` with `DATABASE_URL` set to the Neon connection string. `POST /events` also needs at least one user in the database until auth exists. Automatic migrations on deploy are planned for milestone 6.
 
 ## Development workflow
 
@@ -221,3 +276,5 @@ git switch -c feat/<name>
 - **UUID primary keys generated by Postgres**, so ids are not guessable and do not depend on application code.
 - **Migrations reviewed by hand**, because Alembic's autogenerate does not detect every change (for example, later changes to check constraints).
 - **Argon2 for password hashing**, a slow, salted algorithm designed for passwords.
+- **One error format for every failure**, so the frontend can show field-level messages without handling each endpoint separately.
+- **Limit/offset pagination**, which is simple and fine at this data size. It can switch to cursor pagination if the lists grow large.
