@@ -33,7 +33,7 @@ def list_events(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    stmt = events_with_counts()
+    stmt = select(Event)
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Event.title.ilike(like), Event.location.ilike(like)))
@@ -41,7 +41,8 @@ def list_events(
         stmt = stmt.where(Event.starts_at >= from_)
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.execute(stmt.order_by(Event.starts_at).limit(limit).offset(offset)).all()
+    events = db.scalars(stmt.order_by(Event.starts_at).limit(limit).offset(offset)).all()
+
     return EventPage(
-        items = [to_out(e, c) for e, c in rows], total=total, limit=limit, offset=offset
+        items = [to_out(e, c) for e, c in events], total=total, limit=limit, offset=offset
     )
