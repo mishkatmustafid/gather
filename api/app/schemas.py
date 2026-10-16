@@ -38,7 +38,7 @@ class EventOut(BaseModel):
   i_am_going: bool = False
 
 class EventPage(BaseModel):
-  events: list[EventOut]
+  items: list[EventOut]
   total: int
-  page: int
-  size: int
+  limit: int
+  offset: int
