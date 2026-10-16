@@ -4,8 +4,10 @@ from sqlalchemy import select
 from app.deps import DbSession
 from app.errors import AppError
 from app.models import User
-from app.schemas import UserCreate, UserOut
-from app.security import password_hash
+from app.schemas import UserCreate, UserOut, LoginIn, TokenOut
+from app.security import password_hash, DUMMY_HASH, create_access_token
+
+BAD_LOGIN = AppError(401, "bad_credentials", "Email or password is incorrect.")
 
 router = APIRouter(prefix='/auth', tags=["auth"])
 
@@ -22,3 +24,13 @@ def register(body: UserCreate, db: DbSession):
   db.add(user)
   db.commit()
   return user
+
+@router.post("/login", response_model=TokenOut)
+def login(body: LoginIn, db: DbSession):
+  user = db.scalar(select(User).where(User.email == body.email.strip().lower()))
+  if user is None:
+    password_hash.verify(body.password, DUMMY_HASH) # in order to keep timing similar
+    raise BAD_LOGIN
+  if not password_hash.verify(body.password, user.password_hash):
+    raise BAD_LOGIN
+  return TokenOut(access_token=create_access_token(user.id))
