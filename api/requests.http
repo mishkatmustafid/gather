@@ -1,0 +1,22 @@
+@api = http://localhost:8000
+
+### List events
+GET {{api}}/events?limit=5
+
+### Create event
+POST {{api}}/events
+Content-Type: application/json
+
+{
+  "title": "Board games night",
+  "location": "Stratford Library",
+  "starts_at": "2026-11-14T18:00:00Z",
+  "ends_at": "2026-11-14T21:00:00Z",
+  "capacity": 20
+}
+
+### Invalid: ends before starts (expect 422 with fields._form)
+POST {{api}}/events
+Content-Type: application/json
+
+{ "title": "Bad", "location": "X", "starts_at": "2026-11-14T18:00:00Z", "ends_at": "2026-11-14T17:00:00Z" , "capacity": 0}
