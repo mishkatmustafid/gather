@@ -1,5 +1,5 @@
 import uuid
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator, EmailStr
 
 class EventCreate(BaseModel):
   title: str = Field(min_length=3, max_length=120)
@@ -42,3 +42,22 @@ class EventPage(BaseModel):
   total: int
   limit: int
   offset: int
+
+class UserCreate(BaseModel):
+  email: EmailStr
+  password: str = Field(min_length=8, max_length=128)
+  display_name: str = Field(min_length=1, max_length=60)
+
+class UserOut(BaseModel):
+  model_config = ConfigDict(from_attributes=True)
+  id: uuid.UUID
+  email: str
+  display_name: str
+
+class LoginIn(BaseModel):
+  email: EmailStr
+  password: str
+
+class TokenOut(BaseModel):
+  access_token: str
+  token_type: str = "bearer"
