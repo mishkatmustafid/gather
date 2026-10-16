@@ -1,15 +1,15 @@
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from app.deps import DbSession
+from app.deps import CurrentUser, DbSession
 from app.errors import AppError
 from app.models import User
 from app.schemas import UserCreate, UserOut, LoginIn, TokenOut
 from app.security import password_hash, DUMMY_HASH, create_access_token
 
-BAD_LOGIN = AppError(401, "bad_credentials", "Email or password is incorrect.")
-
 router = APIRouter(prefix='/auth', tags=["auth"])
+
+BAD_LOGIN = AppError(401, "bad_credentials", "Email or password is incorrect.")
 
 @router.post("/register", status_code=201, response_model=UserOut)
 def register(body: UserCreate, db: DbSession):
@@ -34,3 +34,7 @@ def login(body: LoginIn, db: DbSession):
   if not password_hash.verify(body.password, user.password_hash):
     raise BAD_LOGIN
   return TokenOut(access_token=create_access_token(user.id))
+
+@router.get("/me", response_model=UserOut)
+def me(user: CurrentUser):
+  return user

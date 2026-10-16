@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Response, Query
 from sqlalchemy import Select, func, or_, select
 
-from app.deps import DbSession
+from app.deps import DbSession, OptionalUser
 from app.models import Event, RSVP, User
 from app.schemas import EventOut, EventPage, EventCreate, EventUpdate
 from app.errors import AppError
@@ -49,14 +49,22 @@ def list_events(
         items = [to_out(e, c) for e, c in rows], total=total, limit=limit, offset=offset
     )
 
-def load_event(db, event_id: uuid.UUID) -> Event:
-    event = db.get(Event, event_id)
-    if event is None:
+# def load_event(db, event_id: uuid.UUID) -> Event:
+#     event = db.get(Event, event_id)
+#     if event is None:
+#         raise AppError(404, "event_not_found", "No event with that id.")
+#     return event
+
+def load_event_out(db, event_id: uuid.UUID, user: User | None) -> EventOut:
+    row = db.execute(events_with_counts().where(Event.id == event_id)).first()
+    if row is None:
         raise AppError(404, "event_not_found", "No event with that id.")
-    return event
+    event, rsvp_count = row
+    i_am_going = user is not None and db.get(RSVP,  (user.id, event_id)) is not None
+    return to_out(event, rsvp_count, i_am_going)
 
 @router.get("/{event_id}", response_model=EventOut)
-def get_event(event_id: uuid.UUID, db: DbSession):
+def get_event(event_id: uuid.UUID, db: DbSession, user: OptionalUser):
     row = db.execute(events_with_counts().where(Event.id == event_id)).first()
     if row is None:
         raise AppError(404, "event_not_found", "No event with that id.")
@@ -74,16 +82,16 @@ def create_event(body: EventCreate, db: DbSession, response: Response):
 
 @router.patch("/{event_id}", response_model=EventOut)
 def update_event(event_id: uuid.UUID, body: EventUpdate, db: DbSession):
-    event = load_event(db, event_id)
+    event = load_event_out(db, event_id, None)
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(event, field, value)
     if event.ends_at <= event.starts_at:
         raise AppError(422, "validation_error", "End time must be after the start time")
     db.commit()
-    return get_event(event_id, db)
+    return get_event(event_id, db, None)
 
 @router.delete("/{event_id}", status_code=204)
 def delete_event(event_id: uuid.UUID, db: DbSession):
-    db.delete(load_event(db, event_id))
+    db.delete(load_event_out(db, event_id, None))
     db.commit()
