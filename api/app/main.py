@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 
-from app.routers import events, auth
+from app.routers import events, auth, me
 
 from app.errors import register_error_handlers
 
@@ -11,6 +11,7 @@ app = FastAPI(title="Gather API", version="0.1.0")
 
 app.include_router(events.router)
 app.include_router(auth.router)
+app.include_router(me.router)
 
 app.add_middleware(
     CORSMiddleware,
