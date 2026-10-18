@@ -23,6 +23,13 @@ class EventUpdate(BaseModel):
   ends_at: AwareDatetime | None = None
   capacity: int | None = Field(default=None, gt=0, le=10_000)
 
+  @model_validator(mode='after')
+  def no_null_for_required_fields(self):
+    for field in ("title", "location", "starts_at", "ends_at", "capacity"):
+      if field in self.model_fields_set and getattr(self, field) is None:
+        raise ValueError(f"{field} can't be empty.")
+    return self
+
 class EventOut(BaseModel):
   model_config = ConfigDict(from_attributes=True)
 
