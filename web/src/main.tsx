@@ -12,18 +12,41 @@ import Login from "./pages/Login.tsx";
 import Register from "./pages/Register.tsx";
 import Me from "./pages/Me.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import { AuthProvider } from "./auth/AuthContext.tsx";
+import RequireAuth from "./auth/RequireAuth.tsx";
 
 const router = createBrowserRouter([
   {
     element: <Layout />,
     children: [
       { path: "/", element: <EventList /> },
-      { path: "/events/new", element: <NewEvent /> },
+      {
+        path: "/events/new",
+        element: (
+          <RequireAuth>
+            <NewEvent />
+          </RequireAuth>
+        ),
+      },
       { path: "/events/:id", element: <EventDetail /> },
-      { path: "/events/:id/edit", element: <EditEvent /> },
+      {
+        path: "/events/:id/edit",
+        element: (
+          <RequireAuth>
+            <EditEvent />
+          </RequireAuth>
+        ),
+      },
       { path: "/login", element: <Login /> },
       { path: "/register", element: <Register /> },
-      { path: "/me", element: <Me /> },
+      {
+        path: "/me",
+        element: (
+          <RequireAuth>
+            <Me />
+          </RequireAuth>
+        ),
+      },
       { path: "*", element: <NotFound /> },
     ],
   },
@@ -31,6 +54,8 @@ const router = createBrowserRouter([
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>
   </StrictMode>,
 );
