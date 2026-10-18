@@ -15,6 +15,7 @@ router = APIRouter(prefix="/events", tags=["events"])
 
 # ---------- shared helpers ----------
 
+
 def events_with_counts() -> Select:
     count = func.count(RSVP.user_id).label("rsvp_count")
     return (
@@ -26,8 +27,12 @@ def events_with_counts() -> Select:
         .group_by(Event.id)
     )
 
+
 def to_out(event: Event, rsvp_count: int, i_am_going: bool = False) -> EventOut:
-    return EventOut.model_validate(event).model_copy(update={"rsvp_count": rsvp_count, "i_am_going": i_am_going})
+    return EventOut.model_validate(event).model_copy(
+        update={"rsvp_count": rsvp_count, "i_am_going": i_am_going}
+    )
+
 
 def load_event(db, event_id: uuid.UUID, for_update: bool = False) -> Event:
     stmt = select(Event).where(Event.id == event_id)
@@ -38,21 +43,27 @@ def load_event(db, event_id: uuid.UUID, for_update: bool = False) -> Event:
         raise AppError(404, "event_not_found", "No event with that id.")
     return event
 
+
 def load_event_out(db, event_id: uuid.UUID, user: User | None) -> EventOut:
     row = db.execute(events_with_counts().where(Event.id == event_id)).first()
     if row is None:
         raise AppError(404, "event_not_found", "No event with that id.")
     event, rsvp_count = row
-    i_am_going = user is not None and db.get(RSVP,  (user.id, event_id)) is not None
+    i_am_going = user is not None and db.get(RSVP, (user.id, event_id)) is not None
     return to_out(event, rsvp_count, i_am_going)
 
-def load_owned_event(db, event_id: uuid.UUID, user: User, for_update: bool = False) -> Event:
+
+def load_owned_event(
+    db, event_id: uuid.UUID, user: User, for_update: bool = False
+) -> Event:
     event = load_event(db, event_id, for_update)
     if event.owner_id != user.id:
         raise AppError(403, "not_owner", "Only the host can change this event.")
     return event
 
+
 # ---------- routes ----------
+
 
 @router.get("", response_model=EventPage)
 def list_events(
@@ -73,17 +84,19 @@ def list_events(
     rows = db.execute(stmt.order_by(Event.starts_at).limit(limit).offset(offset)).all()
 
     return EventPage(
-        items = [to_out(e, c) for e, c in rows], total=total, limit=limit, offset=offset
+        items=[to_out(e, c) for e, c in rows], total=total, limit=limit, offset=offset
     )
-
 
 
 @router.get("/{event_id}", response_model=EventOut)
 def get_event(event_id: uuid.UUID, db: DbSession, user: OptionalUser):
     return load_event_out(db, event_id, user)
 
+
 @router.post("", status_code=201, response_model=EventOut)
-def create_event(body: EventCreate, user: CurrentUser, db: DbSession, response: Response):
+def create_event(
+    body: EventCreate, user: CurrentUser, db: DbSession, response: Response
+):
     # owner = db.scalars(select(User)).first() # Temporary: first user is owner, will replace with logged-in user
     event = Event(**body.model_dump(), owner_id=user.id)
     db.add(event)
@@ -92,8 +105,11 @@ def create_event(body: EventCreate, user: CurrentUser, db: DbSession, response: 
     response.headers["Location"] = f"/events/{event.id}"
     return to_out(event, 0)
 
+
 @router.patch("/{event_id}", response_model=EventOut)
-def update_event(event_id: uuid.UUID, body: EventUpdate, db: DbSession, user: CurrentUser):
+def update_event(
+    event_id: uuid.UUID, body: EventUpdate, db: DbSession, user: CurrentUser
+):
     changes = body.model_dump(exclude_unset=True)
     event = load_owned_event(db, event_id, user, for_update="capacity" in changes)
 
@@ -102,7 +118,11 @@ def update_event(event_id: uuid.UUID, body: EventUpdate, db: DbSession, user: Cu
             select(func.count()).select_from(RSVP).where(RSVP.event_id == event_id)
         )
         if changes["capacity"] < going:
-            raise AppError(409, "capacity_below_rsvps", f"{going} people are already going, so capacity can't be lower than {going}")
+            raise AppError(
+                409,
+                "capacity_below_rsvps",
+                f"{going} people are already going, so capacity can't be lower than {going}",
+            )
 
     for field, value in changes.items():
         setattr(event, field, value)
@@ -111,10 +131,12 @@ def update_event(event_id: uuid.UUID, body: EventUpdate, db: DbSession, user: Cu
     db.commit()
     return load_event_out(db, event_id, user)
 
+
 @router.delete("/{event_id}", status_code=204)
 def delete_event(event_id: uuid.UUID, db: DbSession, user: CurrentUser):
     db.delete(load_owned_event(db, event_id, user))
     db.commit()
+
 
 @router.post("/{event_id}/rsvp", status_code=201)
 def rsvp(event_id: uuid.UUID, db: DbSession, user: CurrentUser):
@@ -126,12 +148,15 @@ def rsvp(event_id: uuid.UUID, db: DbSession, user: CurrentUser):
         raise AppError(409, "event_started", "This event has already started.")
     if db.get(RSVP, (user.id, event.id)):
         raise AppError(409, "already_going", "You're already going to this event.")
-    going = db.scalar(select(func.count()).select_from(RSVP).where(RSVP.event_id == event_id))
+    going = db.scalar(
+        select(func.count()).select_from(RSVP).where(RSVP.event_id == event_id)
+    )
     if going >= event.capacity:
         raise AppError(409, "event_full", "This event is full.")
     db.add(RSVP(user_id=user.id, event_id=event.id))
-    db.commit() # Release the lock
+    db.commit()  # Release the lock
     return {"status": "going"}
+
 
 @router.delete("/{event_id}/rsvp", status_code=204)
 def cancel_rsvp(event_id: uuid.UUID, db: DbSession, user: CurrentUser):

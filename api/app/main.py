@@ -22,6 +22,7 @@ app.add_middleware(
 
 register_error_handlers(app)
 
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
