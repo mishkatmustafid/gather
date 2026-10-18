@@ -29,8 +29,11 @@ def events_with_counts() -> Select:
 def to_out(event: Event, rsvp_count: int, i_am_going: bool = False) -> EventOut:
     return EventOut.model_validate(event).model_copy(update={"rsvp_count": rsvp_count, "i_am_going": i_am_going})
 
-def load_event(db, event_id: uuid.UUID) -> Event:
-    event = db.get(Event, event_id)
+def load_event(db, event_id: uuid.UUID, for_update: bool = False) -> Event:
+    stmt = select(Event).where(Event.id == event_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    event = db.scalar(stmt)
     if event is None:
         raise AppError(404, "event_not_found", "No event with that id.")
     return event
@@ -43,8 +46,8 @@ def load_event_out(db, event_id: uuid.UUID, user: User | None) -> EventOut:
     i_am_going = user is not None and db.get(RSVP,  (user.id, event_id)) is not None
     return to_out(event, rsvp_count, i_am_going)
 
-def load_owned_event(db, event_id: uuid.UUID, user: User) -> Event:
-    event = load_event(db, event_id)
+def load_owned_event(db, event_id: uuid.UUID, user: User, for_update: bool = False) -> Event:
+    event = load_event(db, event_id, for_update)
     if event.owner_id != user.id:
         raise AppError(403, "not_owner", "Only the host can change this event.")
     return event
@@ -91,8 +94,16 @@ def create_event(body: EventCreate, user: CurrentUser, db: DbSession, response: 
 
 @router.patch("/{event_id}", response_model=EventOut)
 def update_event(event_id: uuid.UUID, body: EventUpdate, db: DbSession, user: CurrentUser):
-    event = load_owned_event(db, event_id, user)
     changes = body.model_dump(exclude_unset=True)
+    event = load_owned_event(db, event_id, user, for_update="capacity" in changes)
+
+    if "capacity" in changes:
+        going = db.scalar(
+            select(func.count()).select_from(RSVP).where(RSVP.event_id == event_id)
+        )
+        if changes["capacity"] < going:
+            raise AppError(409, "capacity_below_rsvps", f"{going} people are already going, so capacity can't be lower than {going}")
+
     for field, value in changes.items():
         setattr(event, field, value)
     if event.ends_at <= event.starts_at:
