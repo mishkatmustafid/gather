@@ -3,6 +3,7 @@
 Reads the database URL from app settings (the same .env the API uses)
 and compares migrations against the SQLAlchemy models in app.models.
 """
+
 from logging.config import fileConfig
 
 from alembic import context
@@ -10,7 +11,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import settings
 from app.db import Base
-import app.models # noqa: F401 - importing registers the tables on Base.metadata
+import app.models  # noqa: F401 - importing registers the tables on Base.metadata
 
 # Alembic Config object, which provides access to the values within the .ini file in use.
 config = context.config
@@ -49,12 +50,15 @@ def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
-        poolclass=pool.NullPool # migrations are one-off, so no need to keep connections open
+        poolclass=pool.NullPool,  # migrations are one-off, so no need to keep connections open
     )
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata, compare_type=True, compare_server_default=True
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
         )
 
         with context.begin_transaction():

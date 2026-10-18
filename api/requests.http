@@ -1,22 +1,191 @@
 @api = http://localhost:8000
 
-### List events
+# Run `python -m app.seed` first. Send the requests top to bottom:
+# later requests reuse tokens and ids from earlier responses.
+
+############################################################
+# Auth
+############################################################
+
+### Register a new user (201; run once, then expect 409 email_taken)
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "email": "dana@example.com", "password": "password123", "display_name": "Dana" }
+
+### Register with too-short password (422, fields.password)
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "email": "eve@example.com", "password": "short", "display_name": "Eve" }
+
+### Log in as Chen — host of "Pottery taster"
+# @name chen
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "chen@example.com", "password": "password123" }
+
+### Log in as Amira
+# @name amira
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "amira@example.com", "password": "password123" }
+
+### Log in as Ben
+# @name ben
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "ben@example.com", "password": "password123" }
+
+### Wrong password (401 bad_credentials)
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "amira@example.com", "password": "wrong-password" }
+
+### Unknown email (401 bad_credentials — identical body to the one above)
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "nobody@example.com", "password": "password123" }
+
+### Current user (200)
+GET {{api}}/auth/me
+Authorization: Bearer {{amira.response.body.access_token}}
+
+### Current user without a token (401 not_authenticated)
+GET {{api}}/auth/me
+
+### Tampered token (401 invalid_token)
+GET {{api}}/auth/me
+Authorization: Bearer {{amira.response.body.access_token}}x
+
+############################################################
+# Events
+############################################################
+
+### List events (200, with rsvp_count on each)
 GET {{api}}/events?limit=5
 
-### Create event
+### Search (200)
+GET {{api}}/events?q=pottery
+
+### Page size over the limit (422)
+GET {{api}}/events?limit=500
+
+### Create event without a token (401 not_authenticated)
 POST {{api}}/events
 Content-Type: application/json
 
-{
-  "title": "Board games night",
-  "location": "Stratford Library",
-  "starts_at": "2026-11-14T18:00:00Z",
-  "ends_at": "2026-11-14T21:00:00Z",
-  "capacity": 20
-}
+{ "title": "Picnic", "location": "Park", "starts_at": "2030-06-01T12:00:00Z", "ends_at": "2030-06-01T15:00:00Z", "capacity": 2 }
 
-### Invalid: ends before starts (expect 422 with fields._form)
+### Create event as Chen (201, Location header)
+# @name created
 POST {{api}}/events
+Authorization: Bearer {{chen.response.body.access_token}}
 Content-Type: application/json
 
-{ "title": "Bad", "location": "X", "starts_at": "2026-11-14T18:00:00Z", "ends_at": "2026-11-14T17:00:00Z" , "capacity": 0}
+{ "title": "Picnic", "location": "Park", "starts_at": "2030-06-01T12:00:00Z", "ends_at": "2030-06-01T15:00:00Z", "capacity": 2 }
+
+### Invalid: ends before starts (422, fields._form)
+POST {{api}}/events
+Authorization: Bearer {{chen.response.body.access_token}}
+Content-Type: application/json
+
+{ "title": "Bad", "location": "X", "starts_at": "2030-06-01T18:00:00Z", "ends_at": "2030-06-01T17:00:00Z", "capacity": 0 }
+
+### Get event anonymously (200, i_am_going false)
+GET {{api}}/events/{{created.response.body.id}}
+
+### Unknown event (404 event_not_found)
+GET {{api}}/events/00000000-0000-0000-0000-000000000000
+
+### Edit someone else's event (403 not_owner)
+PATCH {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{amira.response.body.access_token}}
+Content-Type: application/json
+
+{ "title": "Hijacked" }
+
+### Edit own event, one field (200; other fields unchanged)
+PATCH {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{chen.response.body.access_token}}
+Content-Type: application/json
+
+{ "title": "Summer picnic" }
+
+### Null for a required field (422)
+PATCH {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{chen.response.body.access_token}}
+Content-Type: application/json
+
+{ "capacity": null }
+
+############################################################
+# RSVPs (on the event created above, capacity 2)
+############################################################
+
+### RSVP without a token (401)
+POST {{api}}/events/{{created.response.body.id}}/rsvp
+
+### Amira RSVPs (201)
+POST {{api}}/events/{{created.response.body.id}}/rsvp
+Authorization: Bearer {{amira.response.body.access_token}}
+
+### Amira again (409 already_going)
+POST {{api}}/events/{{created.response.body.id}}/rsvp
+Authorization: Bearer {{amira.response.body.access_token}}
+
+### Ben RSVPs (201 — event is now full)
+POST {{api}}/events/{{created.response.body.id}}/rsvp
+Authorization: Bearer {{ben.response.body.access_token}}
+
+### Chen RSVPs to the full event (409 event_full)
+POST {{api}}/events/{{created.response.body.id}}/rsvp
+Authorization: Bearer {{chen.response.body.access_token}}
+
+### Lower capacity below RSVPs (409 capacity_below_rsvps)
+PATCH {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{chen.response.body.access_token}}
+Content-Type: application/json
+
+{ "capacity": 1 }
+
+### Event as Amira (200, rsvp_count 2, i_am_going true)
+GET {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{amira.response.body.access_token}}
+
+### Amira cancels (204)
+DELETE {{api}}/events/{{created.response.body.id}}/rsvp
+Authorization: Bearer {{amira.response.body.access_token}}
+
+### Amira cancels again (404 not_going)
+DELETE {{api}}/events/{{created.response.body.id}}/rsvp
+Authorization: Bearer {{amira.response.body.access_token}}
+
+### My events: hosting (200)
+GET {{api}}/me/events?role=hosting
+Authorization: Bearer {{chen.response.body.access_token}}
+
+### My events: attending (200)
+GET {{api}}/me/events?role=attending
+Authorization: Bearer {{ben.response.body.access_token}}
+
+### My events: invalid role (422)
+GET {{api}}/me/events?role=other
+Authorization: Bearer {{ben.response.body.access_token}}
+
+############################################################
+# Clean up
+############################################################
+
+### Delete someone else's event (403 not_owner)
+DELETE {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{ben.response.body.access_token}}
+
+### Delete own event (204; its RSVPs go with it)
+DELETE {{api}}/events/{{created.response.body.id}}
+Authorization: Bearer {{chen.response.body.access_token}}
