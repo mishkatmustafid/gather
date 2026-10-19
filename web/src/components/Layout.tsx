@@ -5,7 +5,7 @@ const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b5BDB]";
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
-  `rounded px-2 py-1 ${focusRing} ${isActive ? "fond-bold text-[#3B5BDB]" : "hover:underline"}`;
+  `rounded px-2 py-1 ${focusRing} ${isActive ? "font-bold text-[#3B5BDB]" : "hover:underline"}`;
 
 export default function Layout() {
   const { user, loading, logout } = useAuth();
