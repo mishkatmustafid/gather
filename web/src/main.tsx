@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
-// @ts-expect-error CSS is loaded by the bundler and has no TypeScript declarations.
 import "./index.css";
 import Layout from "./components/Layout";
 import EventList from "./pages/EventList";
