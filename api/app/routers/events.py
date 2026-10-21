@@ -73,7 +73,7 @@ def list_events(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    stmt = select(Event)
+    stmt = events_with_counts()
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Event.title.ilike(like), Event.location.ilike(like)))
