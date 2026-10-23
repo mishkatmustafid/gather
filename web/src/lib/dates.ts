@@ -30,3 +30,13 @@ export function fromParamForDate(date: string): string {
   const now = new Date();
   return (startOfDay > now ? startOfDay : now).toISOString();
 }
+
+/** "Sat 14 Nov, 18:00–21:00" — or both full dates if the event runs past midnight. */
+export function formatEventRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const sameDay = start.toDateString() === end.toDateString();
+  return sameDay
+    ? `${dayFormat.format(start)}, ${timeFormat.format(start)}–${timeFormat.format(end)}`
+    : `${dayFormat.format(start)}, ${timeFormat.format(start)} – ${dayFormat.format(end)}, ${timeFormat.format(end)}`;
+}
