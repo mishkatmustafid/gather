@@ -19,7 +19,7 @@ export default function Layout() {
     <div className='min-h-screen bg-[#FBFAF7] text-[#22252B]'>
       <header className='border-b border-black/10'>
         <div className='mx-auto flex max-w-[960px] flex-wrap items-center justify-between gap-2 p-4'>
-          <Link to='/' className={`rounded text-2xl fond-bold ${focusRing}`}>
+          <Link to='/' className={`rounded text-2xl font-bold ${focusRing}`}>
             Gather
           </Link>
 
