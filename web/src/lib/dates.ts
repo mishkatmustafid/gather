@@ -40,3 +40,13 @@ export function formatEventRange(startIso: string, endIso: string): string {
     ? `${dayFormat.format(start)}, ${timeFormat.format(start)}–${timeFormat.format(end)}`
     : `${dayFormat.format(start)}, ${timeFormat.format(start)} – ${dayFormat.format(end)}, ${timeFormat.format(end)}`;
 }
+
+// <input type="datetime-local"> works in local time with no zone: "2026-11-14T18:00"
+export const toInputValue = (iso: string) => {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// Interpreted as local time, sent as UTC with a zone — what AwareDatetime expects
+export const fromInputValue = (value: string) => new Date(value).toISOString();
