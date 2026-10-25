@@ -1,0 +1,52 @@
+const dayFormat = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+});
+const timeFormat = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** "SAT 14 NOV · 18:00" - the date line on event cards. */
+export function formatCardDate(iso: string): string {
+  const d = new Date(iso);
+  return `${dayFormat.format(d).toUpperCase()} · ${timeFormat.format(d)}`;
+}
+
+/** Today's date in the user's time zone as "YYYY-MM-DD", the format <input type="date"> uses. */
+export function todayDateValue(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * The API's 'from' value for a chosen date: midnight local time on that day,
+ * but never earlier than now, so events that already started today are hidden.
+ */
+export function fromParamForDate(date: string): string {
+  const startOfDay = new Date(`${date}T00:00`);
+  const now = new Date();
+  return (startOfDay > now ? startOfDay : now).toISOString();
+}
+
+/** "Sat 14 Nov, 18:00–21:00" — or both full dates if the event runs past midnight. */
+export function formatEventRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const sameDay = start.toDateString() === end.toDateString();
+  return sameDay
+    ? `${dayFormat.format(start)}, ${timeFormat.format(start)}–${timeFormat.format(end)}`
+    : `${dayFormat.format(start)}, ${timeFormat.format(start)} – ${dayFormat.format(end)}, ${timeFormat.format(end)}`;
+}
+
+// <input type="datetime-local"> works in local time with no zone: "2026-11-14T18:00"
+export const toInputValue = (iso: string) => {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// Interpreted as local time, sent as UTC with a zone — what AwareDatetime expects
+export const fromInputValue = (value: string) => new Date(value).toISOString();

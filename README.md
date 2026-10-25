@@ -14,8 +14,8 @@ Gather is a full-stack practice build covering relational schema design, migrati
 | 2. Database  | Models, constraints, Alembic migrations, seed data, practice SQL | ✅ Done |
 | 3. REST API  | Events CRUD, search, pagination, error format                    | ✅ Done |
 | 4. Auth      | Register, login, JWT, ownership rules, RSVPs                     | ✅ Done |
-| 5. Frontend  | Event list, detail, forms, auth flow                             | ⏳ Next |
-| 6. Hardening | Tests, CI, automatic migrations on deploy                        | ⏳      |
+| 5. Frontend  | Event list, detail, forms, auth flow                             | ✅ Done |
+| 6. Hardening | Tests, CI, automatic migrations on deploy                        | ⏳ Next |
 
 ## Architecture
 
@@ -26,7 +26,7 @@ flowchart LR
   API -->|SQL over TLS| DB[(PostgreSQL on Neon)]
 ```
 
-- **Vercel** serves the built frontend as static files. No application code runs there.
+- **Vercel** serves the built frontend as static files. No application code runs there; `web/vercel.json` sends every path to `index.html` so React Router can handle deep links.
 - **Render** runs the FastAPI app and holds all secrets. It is the only service that connects to the database.
 - **Neon** hosts PostgreSQL. The browser never connects to it directly.
 
@@ -34,13 +34,50 @@ The browser calls the API directly from a different origin, so the API only acce
 
 ## Tech stack
 
-| Layer                | Tools                                                              |
-| -------------------- | ------------------------------------------------------------------ |
-| Database             | PostgreSQL 16, SQLAlchemy 2.0, Alembic                             |
-| API                  | Python 3.12, FastAPI, Pydantic, pydantic-settings, pwdlib (Argon2), PyJWT |
-| Web                  | React, TypeScript, Vite, Tailwind CSS                              |
-| Local infrastructure | Docker Compose                                                     |
-| Hosting              | Vercel (web), Render (API), Neon (database)                        |
+| Layer                | Tools                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
+| Database             | PostgreSQL 16, SQLAlchemy 2.0, Alembic                                       |
+| API                  | Python 3.12, FastAPI, Pydantic, pydantic-settings, pwdlib (Argon2), PyJWT    |
+| Web                  | React 19, TypeScript, Vite, Tailwind CSS 4, React Router 7, TanStack Query 5 |
+| Local infrastructure | Docker Compose                                                               |
+| Hosting              | Vercel (web), Render (API), Neon (database)                                  |
+
+## Frontend
+
+### Pages
+
+| Path               | Access    | What it does                                                                              |
+| ------------------ | --------- | ----------------------------------------------------------------------------------------- |
+| `/`                | Public    | Upcoming events with search, a "from" date filter and pagination, all kept in the URL     |
+| `/events/:id`      | Public    | Event details, capacity bar and RSVP; the host also sees Edit and Delete                  |
+| `/events/new`      | Logged in | Create an event                                                                           |
+| `/events/:id/edit` | Host only | Edit an event; anyone else sees "You can't edit this event"                               |
+| `/me`              | Logged in | Events you're hosting (`/me`) or going to (`/me?tab=going`), split into upcoming and past |
+| `/login`           | Public    | Log in; returns to the page you came from via `?next=`                                    |
+| `/register`        | Public    | Create an account and log straight in                                                     |
+
+Logged-out visitors who open a protected page are sent to `/login?next=…` and brought back after logging in. `?next=` only accepts paths on this site, so it can't redirect somewhere else.
+
+### How it works
+
+- **Auth state:** `AuthContext` stores the access token in `localStorage`, restores the session on load by calling `/auth/me`, and clears it on logout or when the token is rejected.
+- **Server state:** TanStack Query fetches and caches all API data. Query keys and fetchers live in `src/lib/queries.ts`:
+  - Data stays fresh for 30 seconds, so Back, tab switches and opening Edit from an event page are instant.
+  - The event detail key includes the viewer's id, because `i_am_going` depends on who is asking.
+  - After an RSVP, create, edit or delete, the affected queries are invalidated or updated directly, so every page shows the new data.
+  - 4xx responses are never retried; network errors and 5xx responses are retried once.
+  - Logging out removes the cached "my events" data.
+- **URL as state:** search, date filter, page and the active tab are query parameters, so refreshing, sharing a link and the Back button all work. Typing in the search box updates the URL after a 300 ms pause, without adding a history entry for every keystroke.
+- **Forms:** `EventForm` is shared by create and edit. Validation in `src/lib/eventForm.ts` mirrors the API's rules, and server errors appear under the matching field. `datetime-local` values are converted to UTC ISO strings before sending.
+- **Every data view** has loading, empty and error states, with "Try again" on errors.
+
+### Accessibility
+
+- Every input has a label; errors are linked with `aria-describedby` and marked with `aria-invalid`.
+- Visible focus rings throughout, a "Skip to main content" link, and keyboard-operable tabs on `/me` (arrow keys, Home, End).
+- Touch targets are at least 44 px tall, and layouts work down to 360 px wide.
+- Text colours meet WCAG AA contrast (4.5:1).
+- Each page sets its own browser tab title, for example "Board games night · Gather".
 
 ## Data model
 
@@ -100,42 +137,55 @@ Authorization: Bearer <access_token>
 
 Tokens are signed JWTs (HS256) that expire after 15 minutes. In `/docs`, click **Authorize** and paste the token to try protected endpoints.
 
-| Method | Path             | Auth | Description                                                         | Success      |
-| ------ | ---------------- | ---- | ------------------------------------------------------------------- | ------------ |
-| `POST` | `/auth/register` | —    | Create an account; email is stored lowercased                       | 201 user     |
-| `POST` | `/auth/login`    | —    | Exchange email and password for an access token                     | 200 token    |
-| `GET`  | `/auth/me`       | Yes  | The current user                                                    | 200 user     |
+| Method | Path             | Auth | Description                                     | Success   |
+| ------ | ---------------- | ---- | ----------------------------------------------- | --------- |
+| `POST` | `/auth/register` | —    | Create an account; email is stored lowercased   | 201 user  |
+| `POST` | `/auth/login`    | —    | Exchange email and password for an access token | 200 token |
+| `GET`  | `/auth/me`       | Yes  | The current user                                | 200 user  |
 
 Passwords must be 8–128 characters. User responses never include the password hash.
 
 ### Events
 
-| Method   | Path                | Auth     | Description                                                                 | Success |
-| -------- | ------------------- | -------- | --------------------------------------------------------------------------- | ------- |
-| `GET`    | `/events`           | —        | List events with RSVP counts, ordered by start time                         | 200     |
-| `GET`    | `/events/{id}`      | Optional | One event with its RSVP count; `i_am_going` is set when a token is sent     | 200     |
-| `POST`   | `/events`           | Yes      | Create an event owned by the current user; `Location` header points at it   | 201     |
-| `PATCH`  | `/events/{id}`      | Host     | Update only the fields sent                                                 | 200     |
-| `DELETE` | `/events/{id}`      | Host     | Delete an event and its RSVPs                                               | 204     |
-| `POST`   | `/events/{id}/rsvp` | Yes      | RSVP to an event                                                            | 201     |
-| `DELETE` | `/events/{id}/rsvp` | Yes      | Cancel your RSVP                                                            | 204     |
+| Method   | Path                | Auth     | Description                                                                  | Success |
+| -------- | ------------------- | -------- | ---------------------------------------------------------------------------- | ------- |
+| `GET`    | `/events`           | —        | List events with RSVP counts, ordered by start time                          | 200     |
+| `GET`    | `/events/{id}`      | Optional | One event with its RSVP count; `i_am_going` is set when a token is sent      | 200     |
+| `POST`   | `/events`           | Yes      | Create an event owned by the current user; `Location` header points at it    | 201     |
+| `PATCH`  | `/events/{id}`      | Host     | Update only the fields sent                                                  | 200     |
+| `DELETE` | `/events/{id}`      | Host     | Delete an event and its RSVPs                                                | 204     |
+| `POST`   | `/events/{id}/rsvp` | Yes      | RSVP to an event                                                             | 201     |
+| `DELETE` | `/events/{id}/rsvp` | Yes      | Cancel your RSVP                                                             | 204     |
 | `GET`    | `/me/events`        | Yes      | Events you host (`?role=hosting`, the default) or attend (`?role=attending`) | 200     |
 
 "Host" means the user who created the event; anyone else gets 403.
 
 `GET /events` accepts these query parameters:
 
-| Parameter | Default | Description                                                     |
-| --------- | ------- | --------------------------------------------------------------- |
-| `q`       | —       | Case-insensitive search in title and location                   |
-| `from`    | —       | Only events starting at or after this time (ISO 8601)           |
-| `limit`   | `20`    | Page size, 1–50                                                 |
-| `offset`  | `0`     | Number of events to skip                                        |
+| Parameter | Default | Description                                           |
+| --------- | ------- | ----------------------------------------------------- |
+| `q`       | —       | Case-insensitive search in title and location         |
+| `from`    | —       | Only events starting at or after this time (ISO 8601) |
+| `limit`   | `20`    | Page size, 1–50                                       |
+| `offset`  | `0`     | Number of events to skip                              |
 
 It returns a page:
 
 ```json
-{ "items": [ { "id": "…", "title": "Board games night", "rsvp_count": 12, "i_am_going": false, "…": "…" } ], "total": 42, "limit": 20, "offset": 0 }
+{
+  "items": [
+    {
+      "id": "…",
+      "title": "Board games night",
+      "rsvp_count": 12,
+      "i_am_going": false,
+      "…": "…"
+    }
+  ],
+  "total": 42,
+  "limit": 20,
+  "offset": 0
+}
 ```
 
 Validation rules for create and update: the title is 3–120 characters, the location is 1–200 characters, capacity is 1–10,000, and `starts_at` and `ends_at` must include a timezone, with the end after the start. `PATCH` checks the end-after-start rule against the event's values after the update is applied, and rejects `null` for any field except `description`.
@@ -151,24 +201,30 @@ Validation rules for create and update: the title is 3–120 characters, the loc
 Every error uses the same shape:
 
 ```json
-{ "error": { "code": "validation_error", "message": "Some fields are invalid.", "fields": { "title": "String should have at least 3 characters" } } }
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Some fields are invalid.",
+    "fields": { "title": "String should have at least 3 characters" }
+  }
+}
 ```
 
-| Status | `code`                 | When                                                                                                |
-| ------ | ---------------------- | --------------------------------------------------------------------------------------------------- |
-| 401    | `bad_credentials`      | Login failed; the same response for an unknown email and a wrong password                           |
-| 401    | `not_authenticated`    | The endpoint needs a token and none was sent                                                         |
-| 401    | `token_expired`        | The token has expired; log in again                                                                  |
-| 401    | `invalid_token`        | The token is malformed, tampered with, or its user no longer exists                                  |
-| 403    | `not_owner`            | Only the event's host can change or delete it                                                        |
-| 404    | `event_not_found`      | No event has that id                                                                                 |
-| 404    | `not_going`            | Cancelling an RSVP you don't have                                                                    |
-| 409    | `email_taken`          | An account with that email already exists                                                            |
-| 409    | `event_started`        | RSVP to an event that has already started                                                            |
-| 409    | `already_going`        | RSVP to an event you're already going to                                                             |
-| 409    | `event_full`           | RSVP to a full event                                                                                 |
-| 409    | `capacity_below_rsvps` | Lowering capacity below the number of people going                                                   |
-| 409    | `conflict`             | The change breaks a database constraint                                                              |
+| Status | `code`                 | When                                                                                                                          |
+| ------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 401    | `bad_credentials`      | Login failed; the same response for an unknown email and a wrong password                                                     |
+| 401    | `not_authenticated`    | The endpoint needs a token and none was sent                                                                                  |
+| 401    | `token_expired`        | The token has expired; log in again                                                                                           |
+| 401    | `invalid_token`        | The token is malformed, tampered with, or its user no longer exists                                                           |
+| 403    | `not_owner`            | Only the event's host can change or delete it                                                                                 |
+| 404    | `event_not_found`      | No event has that id                                                                                                          |
+| 404    | `not_going`            | Cancelling an RSVP you don't have                                                                                             |
+| 409    | `email_taken`          | An account with that email already exists                                                                                     |
+| 409    | `event_started`        | RSVP to an event that has already started                                                                                     |
+| 409    | `already_going`        | RSVP to an event you're already going to                                                                                      |
+| 409    | `event_full`           | RSVP to a full event                                                                                                          |
+| 409    | `capacity_below_rsvps` | Lowering capacity below the number of people going                                                                            |
+| 409    | `conflict`             | The change breaks a database constraint                                                                                       |
 | 422    | `validation_error`     | The request is invalid; `fields` maps each invalid field to its message, and `_form` holds errors that involve several fields |
 
 All 401 responses include a `WWW-Authenticate: Bearer` header.
@@ -201,7 +257,25 @@ gather/
 │  ├─ requirements.txt
 │  └─ .env.example
 └─ web/
-   ├─ src/                   # React app
+   ├─ src/
+   │  ├─ main.tsx            # router, QueryClientProvider, AuthProvider
+   │  ├─ auth/
+   │  │  ├─ AuthContext.tsx  # current user, login, logout
+   │  │  └─ RequireAuth.tsx  # redirects logged-out users to /login
+   │  ├─ components/
+   │  │  ├─ Layout.tsx       # header, nav, skip link
+   │  │  ├─ EventCard.tsx    # one event in a list
+   │  │  ├─ EventForm.tsx    # shared create/edit form
+   │  │  └─ FormField.tsx    # labelled input with error message
+   │  ├─ lib/
+   │  │  ├─ api.ts           # fetch wrapper, token storage, ApiError
+   │  │  ├─ queries.ts       # TanStack Query keys and fetchers
+   │  │  ├─ queryClient.ts   # cache and retry defaults
+   │  │  ├─ eventForm.ts     # form values, validation, payload conversion
+   │  │  ├─ dates.ts         # date formatting and conversion
+   │  │  ├─ types.ts         # API response types
+   │  │  └─ usePageTitle.ts  # sets the browser tab title
+   │  └─ pages/              # one component per route
    ├─ vercel.json            # SPA rewrite
    └─ .env.example
 ```
@@ -246,7 +320,15 @@ cp .env.example .env
 npm run dev
 ```
 
-The app runs at http://localhost:5173 and should show **API: ok**.
+The app runs at http://localhost:5173 and shows the upcoming seeded events. Log in with one of the seeded accounts below to RSVP or create events.
+
+Other web commands, run from `web/`:
+
+| Command           | What it does                            |
+| ----------------- | --------------------------------------- |
+| `npm run lint`    | ESLint, including the React hooks rules |
+| `npm run build`   | Type-check and build to `dist/`         |
+| `npm run preview` | Serve the production build locally      |
 
 ### Seeded accounts
 
@@ -256,17 +338,21 @@ The app runs at http://localhost:5173 and should show **API: ok**.
 | ben@example.com   | password123 |
 | chen@example.com  | password123 |
 
-These exist only in the local database. Log in with any of them to get a token for testing.
+These exist only in the local database. Useful seeded data for trying things out:
+
+- **Chen** hosts "Pottery taster", which is full (Amira and Ben are going).
+- **Chen** is going to "Italian conversation".
+- The first two events are in the past and show "This event has finished." The third starts at the moment you seed, so for the next three hours it shows "This event has already started."
 
 ## Environment variables
 
 ### API (`api/.env`)
 
-| Variable       | Example                                                    | Secret | Notes                                                                                                     |
-| -------------- | ---------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL` | `postgresql+psycopg://gather:gather@localhost:5432/gather` | Yes    | In production, the Neon connection string with the `postgresql+psycopg://` prefix and `?sslmode=require`. |
+| Variable       | Example                                                    | Secret | Notes                                                                                                                                                                     |
+| -------------- | ---------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | `postgresql+psycopg://gather:gather@localhost:5432/gather` | Yes    | In production, the Neon connection string with the `postgresql+psycopg://` prefix and `?sslmode=require`.                                                                 |
 | `JWT_SECRET`   | `change-me`                                                | Yes    | Signs access tokens. Production needs a random value of at least 32 bytes: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Changing it logs everyone out. |
-| `CORS_ORIGINS` | `["http://localhost:5173"]`                                | No     | JSON list of allowed frontend origins, no trailing slashes. Defaults to `["http://localhost:5173"]`.      |
+| `CORS_ORIGINS` | `["http://localhost:5173"]`                                | No     | JSON list of allowed frontend origins, no trailing slashes. Defaults to `["http://localhost:5173"]`.                                                                      |
 
 ### Web (`web/.env`)
 
@@ -291,13 +377,13 @@ All commands run from `api/` with the virtual environment active.
 
 ## Deployment
 
-| Service | Settings                                                                                                                                |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Neon    | PostgreSQL project; connection string stored only in Render's environment.                                                              |
-| Render  | Root directory `api`; build `pip install -r requirements.txt`; start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`; branch `main`. |
-| Vercel  | Root directory `web`; framework Vite; build `npm run build`; output `dist`; production branch `main`.                                   |
+| Service | Settings                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Neon    | PostgreSQL project; connection string stored only in Render's environment.                                                                  |
+| Render  | Root directory `api`; build `pip install -r requirements.txt`; start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`; branch `main`.     |
+| Vercel  | Root directory `web`; framework Vite; build `npm run build`; output `dist`; production branch `main`; `VITE_API_URL` set to the Render URL. |
 
-Merging to `main` redeploys both the API and the web app.
+Merging to `main` redeploys both the API and the web app. Pull requests also get a Vercel preview deployment; add its URL to `CORS_ORIGINS` on Render if you want the preview to reach the API.
 
 The production database is not migrated automatically yet. After merging a migration, apply it to Neon by hand from `api/`:
 
@@ -331,3 +417,14 @@ git switch -c feat/<name>
 - **Ownership checked after existence (404 before 403)**, so the error order is predictable for clients.
 - **One error format for every failure**, so the frontend can show field-level messages without handling each endpoint separately.
 - **Limit/offset pagination**, which is simple and fine at this data size. It can switch to cursor pagination if the lists grow large.
+- **React Router and Vite instead of Next.js**, so routing, data fetching and auth state are handled explicitly in the client rather than by a framework.
+- **TanStack Query for server state**, which replaces hand-written loading flags, request cancellation and refetching with cache keys and invalidation.
+- **The URL as the source of truth for filters and tabs**, so links can be shared and the Back button behaves as expected.
+- **Client validation that mirrors the server**, for fast feedback; the API remains the authority, and its errors are shown in the same places.
+- **Exact versions for newly added dependencies**, choosing releases at least two weeks old, to reduce exposure to compromised packages.
+
+## Known limitations
+
+- **Token storage:** the access token is kept in `localStorage`, which any script on the page can read, so an XSS bug could steal it. Moving to an httpOnly refresh-token cookie is a planned extension.
+- **Host names:** the API returns only `owner_id`, so event pages show "You're hosting this event" to the host but not the host's name to others.
+- **No automated tests yet:** the API and frontend tests, and running them in CI, are milestone 6.
