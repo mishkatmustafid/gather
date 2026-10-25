@@ -1,17 +1,12 @@
-import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { formatEventRange } from "../lib/dates";
+import { errorMessage, fetchEvent, isNotFound, keys } from "../lib/queries";
 import type { GatherEvent } from "../lib/types";
 import { usePageTitle } from "../lib/usePageTitle";
-
-type Result = {
-  key: string;
-  event?: GatherEvent;
-  notFound?: boolean;
-  error?: string;
-};
 
 const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB] focus-visible:ring-offset-2";
@@ -21,56 +16,42 @@ export default function EventDetail() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const loginLink = `/login?next=${encodeURIComponent(location.pathname)}`;
 
-  // ---- load the event (refetch when the user logs in/out, so i_am_going is right) ----
-  const [reloads, setReloads] = useState(0);
-  const userId = user?.id ?? "anon";
-  const requestKey = `${id}|${userId}|${reloads}`;
-  const [result, setResult] = useState<Result>({ key: "" });
+  // ---- load the event; the viewer is in the key, so logging in/out refetches i_am_going ----
+  const {
+    data: event,
+    error,
+    isPending,
+    refetch,
+    isRefetching,
+  } = useQuery({
+    queryKey: keys.event(id, user?.id ?? "anon"),
+    queryFn: ({ signal }) => fetchEvent(id, signal),
+    enabled: !authLoading, // wait until we know who's asking
+  });
 
-  useEffect(() => {
-    if (authLoading) return; // wait until we know who's asking
-    const controller = new AbortController();
-    const key = `${id}|${userId}|${reloads}`;
-
-    api<GatherEvent>(`/events/${id}`, { signal: controller.signal })
-      .then((event) => setResult({ key, event }))
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        if (
-          err instanceof ApiError &&
-          (err.status === 404 || err.status === 422)
-        ) {
-          setResult({ key, notFound: true }); // 422 = the id isn't even a valid UUID
-        } else {
-          const message =
-            err instanceof ApiError
-              ? err.message
-              : "Couldn't reach the server. Check your connection.";
-          setResult({ key, error: message });
-        }
-      });
-
-    return () => controller.abort();
-  }, [id, userId, reloads, authLoading]);
   usePageTitle(
-    result.event?.title ?? (result.notFound ? "Event not found" : undefined),
+    event?.title ?? (isNotFound(error) ? "Event not found" : undefined),
   );
 
-  // ---- actions ----
-  const [pending, setPending] = useState<"rsvp" | "delete" | null>(null);
+  // Every event list, detail and "my events" view may now be out of date
+  const refreshEverything = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: keys.events }),
+      queryClient.invalidateQueries({ queryKey: keys.me }),
+    ]);
+
+  // ---- RSVP / cancel ----
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function toggleRsvp(event: GatherEvent) {
-    setPending("rsvp");
-    setActionError(null);
-    try {
-      await api(`/events/${event.id}/rsvp`, {
-        method: event.i_am_going ? "DELETE" : "POST",
-      });
-      setReloads((n) => n + 1); // refetch for the new count
-    } catch (err) {
+  const rsvp = useMutation({
+    mutationFn: (going: boolean) =>
+      api(`/events/${id}/rsvp`, { method: going ? "DELETE" : "POST" }),
+    onMutate: () => setActionError(null),
+    onSuccess: refreshEverything,
+    onError: (err) => {
       if (
         err instanceof ApiError &&
         (err.code === "not_authenticated" || err.code === "token_expired")
@@ -78,50 +59,47 @@ export default function EventDetail() {
         navigate(loginLink);
         return;
       }
+      // already_going / not_going just mean our copy was stale: refresh quietly
       if (
-        err instanceof ApiError &&
-        (err.code === "already_going" || err.code === "not_going")
+        !(
+          err instanceof ApiError &&
+          (err.code === "already_going" || err.code === "not_going")
+        )
       ) {
-        setReloads((n) => n + 1); // our copy was stale (e.g. changed in another tab): just refresh
-        return;
+        setActionError(errorMessage(err));
       }
-      setActionError(
-        err instanceof Error ? err.message : "Something went wrong. Try again.",
-      );
-      setReloads((n) => n + 1); // e.g. event_full: show the latest count
-    } finally {
-      setPending(null);
+      refreshEverything(); // e.g. event_full: show the latest count
+    },
+  });
+
+  // ---- delete ----
+  const remove = useMutation({
+    mutationFn: () => api(`/events/${id}`, { method: "DELETE" }),
+    onMutate: () => setActionError(null),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ["events", "detail", id] }); // it no longer exists
+      refreshEverything();
+      navigate("/", { replace: true });
+    },
+    onError: (err) => setActionError(errorMessage(err)),
+  });
+
+  function confirmDelete(e: GatherEvent) {
+    if (
+      window.confirm(
+        `Delete “${e.title}”? Everyone who RSVP'd will lose it. This can't be undone.`,
+      )
+    ) {
+      remove.mutate();
     }
   }
 
-  async function deleteEvent(event: GatherEvent) {
-    if (
-      !window.confirm(
-        `Delete “${event.title}”? Everyone who RSVP'd will lose it. This can't be undone.`,
-      )
-    )
-      return;
-    setPending("delete");
-    setActionError(null);
-    try {
-      await api(`/events/${event.id}`, { method: "DELETE" });
-      navigate("/", { replace: true });
-    } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : "Couldn't delete the event. Try again.",
-      );
-      setPending(null);
-    }
-  }
+  const busy = rsvp.isPending || remove.isPending;
 
   // ---- render ----
-  const current = result.key === requestKey ? result : null;
+  if (isPending) return <p className='py-4 text-black/60'>Loading event…</p>;
 
-  if (!current) return <p className='py-4 text-black/60'>Loading event…</p>;
-
-  if (current.notFound) {
+  if (isNotFound(error)) {
     return (
       <div className='py-4'>
         <h1 className='text-3xl font-bold'>This event doesn't exist</h1>
@@ -133,7 +111,7 @@ export default function EventDetail() {
     );
   }
 
-  if (current.error || !current.event) {
+  if (!event) {
     return (
       <div className='py-4'>
         <BackLink />
@@ -141,20 +119,20 @@ export default function EventDetail() {
           role='alert'
           className='mt-4 rounded border border-red-300 bg-red-50 p-4 text-red-800'
         >
-          <p>{current.error}</p>
+          <p>{errorMessage(error)}</p>
           <button
             type='button'
-            onClick={() => setReloads((n) => n + 1)}
-            className={`mt-2 min-h-11 rounded border border-red-400 px-3 ${focusRing}`}
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className={`mt-2 min-h-11 rounded border border-red-400 px-3 disabled:opacity-60 ${focusRing}`}
           >
-            Try again
+            {isRefetching ? "Retrying…" : "Try again"}
           </button>
         </div>
       </div>
     );
   }
 
-  const event = current.event;
   const isOwner = user?.id === event.owner_id;
   const now = new Date();
   const started = new Date(event.starts_at) <= now;
@@ -229,11 +207,11 @@ export default function EventDetail() {
             <span className='font-medium text-[#24763A]'>✓ You're going</span>
             <button
               type='button'
-              disabled={pending !== null}
-              onClick={() => toggleRsvp(event)}
+              disabled={busy}
+              onClick={() => rsvp.mutate(true)}
               className={`min-h-11 rounded border border-black/20 px-4 disabled:opacity-60 ${focusRing}`}
             >
-              {pending === "rsvp" ? "Cancelling…" : "Cancel RSVP"}
+              {rsvp.isPending ? "Cancelling…" : "Cancel RSVP"}
             </button>
           </div>
         ) : full ? (
@@ -241,11 +219,11 @@ export default function EventDetail() {
         ) : (
           <button
             type='button'
-            disabled={pending !== null}
-            onClick={() => toggleRsvp(event)}
+            disabled={busy}
+            onClick={() => rsvp.mutate(false)}
             className={`min-h-11 rounded bg-[#3B5BDB] px-4 font-medium text-white disabled:opacity-60 ${focusRing}`}
           >
-            {pending === "rsvp" ? "Saving…" : "I'm going"}
+            {rsvp.isPending ? "Saving…" : "I'm going"}
           </button>
         )}
 
@@ -267,11 +245,11 @@ export default function EventDetail() {
           </Link>
           <button
             type='button'
-            disabled={pending !== null}
-            onClick={() => deleteEvent(event)}
+            disabled={busy}
+            onClick={() => confirmDelete(event)}
             className={`min-h-11 rounded border border-red-400 px-4 text-red-700 disabled:opacity-60 ${focusRing}`}
           >
-            {pending === "delete" ? "Deleting…" : "Delete"}
+            {remove.isPending ? "Deleting…" : "Delete"}
           </button>
         </div>
       )}
