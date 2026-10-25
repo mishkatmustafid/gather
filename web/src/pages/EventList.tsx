@@ -1,21 +1,18 @@
-import { Link, useSearchParams } from "react-router-dom";
-import type { GatherEvent, Page } from "../lib/types";
-import { fromParamForDate, todayDateValue } from "../lib/dates";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../lib/api";
+import { Link, useSearchParams } from "react-router-dom";
 import EventCard from "../components/EventCard";
+import { todayDateValue } from "../lib/dates";
+import { errorMessage, fetchEventPage, keys, PAGE_SIZE } from "../lib/queries";
 import { usePageTitle } from "../lib/usePageTitle";
 
-const PAGE_SIZE = 10;
 const DEBOUNCE_MS = 300;
-
-type Result = { key: string; data?: Page<GatherEvent>; error?: string };
 
 export default function EventList() {
   usePageTitle("Upcoming events");
   const [params, setParams] = useSearchParams();
 
-  // --- state that lives in the URL ---
+  // ---- state that lives in the URL ----
   const q = params.get("q") ?? "";
   const fromDate = params.get("from") ?? todayDateValue();
   const page = Math.max(1, Number(params.get("page")) || 1);
@@ -37,11 +34,10 @@ export default function EventList() {
     );
   }
 
-  // --- search box: types instantly, updates the URL after a pause ---
+  // ---- search box: types instantly, updates the URL after a pause ----
   const [search, setSearch] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
-  if (q != syncedQ) {
-    // q changed from outside the box (Back button, "Clear search"): show it in the box
+  if (q !== syncedQ) {
     setSyncedQ(q);
     setSearch(q);
   }
@@ -55,49 +51,23 @@ export default function EventList() {
           const next = new URLSearchParams(prev);
           if (term) next.set("q", term);
           else next.delete("q");
-          next.delete("page"); // a new search starts at page 1
+          next.delete("page");
           return next;
         },
-        { replace: true }, // typing shouldn't add one history entry per pause
+        { replace: true },
       );
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [search, q, setParams]);
 
-  // --- data fetching ---
-  const [reloads, setReloads] = useState(0);
-  const requestKey = `${q}|${fromDate}|${page}|${reloads}`;
-  const [result, setResult] = useState<Result>({ key: "" });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const key = `${q}|${fromDate}|${page}|${reloads}`;
-    const qs = new URLSearchParams({
-      limit: String(PAGE_SIZE),
-      offset: String((page - 1) * PAGE_SIZE),
-      from: fromParamForDate(fromDate),
+  // ---- data: the URL params are the query key, so any change refetches (and cancels the old request) ----
+  const { data, error, isPending, isPlaceholderData, refetch, isRefetching } =
+    useQuery({
+      queryKey: keys.eventList({ q, fromDate, page }),
+      queryFn: ({ signal }) => fetchEventPage(q, fromDate, page, signal),
+      placeholderData: keepPreviousData, // keep the previous page on screen while the next one loads
     });
-    if (q) qs.set("q", q);
-
-    api<Page<GatherEvent>>(`/events?${qs}`, { signal: controller.signal })
-      .then((data) => setResult({ key, data }))
-      .catch((err) => {
-        if (controller.signal.aborted) return; // a newer request replaced this one
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : "Couldn't reach the server. Check your connection.";
-        setResult({ key, error: message });
-      });
-
-    return () => controller.abort();
-  }, [q, fromDate, page, reloads]);
-
-  // Anything not matching the current URL is stale, so we're still loading
-  const current = result.key === requestKey ? result : null;
-  const totalPages = current?.data
-    ? Math.max(1, Math.ceil(current.data.total / PAGE_SIZE))
-    : 1;
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   return (
     <div className='py-4'>
@@ -140,26 +110,31 @@ export default function EventList() {
       </div>
 
       {/* ---- results ---- */}
-      <div className='mt-6' aria-live='polite' aria-busy={!current}>
-        {!current && <p className='text-black/60'>Loading events…</p>}
+      <div
+        className='mt-6'
+        aria-live='polite'
+        aria-busy={isPending || isPlaceholderData}
+      >
+        {isPending && <p className='text-black/60'>Loading events…</p>}
 
-        {current?.error && (
+        {error && !data && (
           <div
             role='alert'
             className='rounded border border-red-300 bg-red-50 p-4 text-red-800'
           >
-            <p>{current.error}</p>
+            <p>{errorMessage(error)}</p>
             <button
               type='button'
-              onClick={() => setReloads((n) => n + 1)}
-              className='mt-2 min-h-11 rounded border border-red-400 px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB]'
+              onClick={() => refetch()}
+              disabled={isRefetching}
+              className='mt-2 min-h-11 rounded border border-red-400 px-3 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB]'
             >
-              Try again
+              {isRefetching ? "Retrying…" : "Try again"}
             </button>
           </div>
         )}
 
-        {current?.data && current.data.items.length === 0 && (
+        {data && data.items.length === 0 && (
           <div className='rounded border border-dashed border-black/20 p-6 text-center'>
             {page > 1 ? (
               <p>
@@ -194,15 +169,21 @@ export default function EventList() {
           </div>
         )}
 
-        {current?.data && current.data.items.length > 0 && (
-          <>
+        {data && data.items.length > 0 && (
+          // Dim the old results while the next page or search loads
+          <div
+            className={
+              isPlaceholderData
+                ? "opacity-60 transition-opacity"
+                : "transition-opacity"
+            }
+          >
             <p className='mb-3 text-sm text-black/60'>
-              Showing {(page - 1) * PAGE_SIZE + 1}–
-              {(page - 1) * PAGE_SIZE + current.data.items.length} of{" "}
-              {current.data.total} events
+              Showing {data.offset + 1}–{data.offset + data.items.length} of{" "}
+              {data.total} events
             </p>
             <ul className='grid gap-3'>
-              {current.data.items.map((event) => (
+              {data.items.map((event) => (
                 <EventCard key={event.id} event={event} />
               ))}
             </ul>
@@ -229,7 +210,7 @@ export default function EventList() {
                 </span>
                 <button
                   type='button'
-                  disabled={page >= totalPages}
+                  disabled={page >= totalPages || isPlaceholderData}
                   onClick={() => updateParams({ page: String(page + 1) })}
                   className='min-h-11 rounded px-3 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB]'
                 >
@@ -237,7 +218,7 @@ export default function EventList() {
                 </button>
               </nav>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
