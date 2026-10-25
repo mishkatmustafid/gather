@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { formatEventRange } from "../lib/dates";
 import type { GatherEvent } from "../lib/types";
+import { usePageTitle } from "../lib/usePageTitle";
 
 type Result = {
   key: string;
@@ -53,6 +54,9 @@ export default function EventDetail() {
 
     return () => controller.abort();
   }, [id, userId, reloads, authLoading]);
+  usePageTitle(
+    result.event?.title ?? (result.notFound ? "Event not found" : undefined),
+  );
 
   // ---- actions ----
   const [pending, setPending] = useState<"rsvp" | "delete" | null>(null);

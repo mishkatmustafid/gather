@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import EventCard from "../components/EventCard";
 import { api, ApiError } from "../lib/api";
 import type { GatherEvent } from "../lib/types";
+import { usePageTitle } from "../lib/usePageTitle";
 
 type Tab = "hosting" | "going";
 
@@ -32,6 +33,7 @@ const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB] focus-visible:ring-offset-2";
 
 export default function Me() {
+  usePageTitle("My events");
   const [params, setParams] = useSearchParams();
   const tab: Tab = params.get("tab") === "going" ? "going" : "hosting";
   const apiRole = TABS.find((t) => t.id === tab)!.role;

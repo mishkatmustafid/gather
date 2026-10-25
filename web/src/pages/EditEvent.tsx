@@ -5,6 +5,7 @@ import EventForm from "../components/EventForm";
 import { eventToValues, type EventPayload } from "../lib/eventForm";
 import { api, ApiError } from "../lib/api";
 import type { GatherEvent } from "../lib/types";
+import { usePageTitle } from "../lib/usePageTitle";
 
 type Result = {
   key: string;
@@ -46,6 +47,9 @@ export default function EditEvent() {
       });
     return () => controller.abort();
   }, [id, reloads]);
+  usePageTitle(
+    result.event?.title ?? (result.notFound ? "Event not found" : undefined),
+  );
 
   async function save(payload: EventPayload) {
     await api<GatherEvent>(`/events/${id}`, {

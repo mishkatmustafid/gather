@@ -4,6 +4,7 @@ import { fromParamForDate, todayDateValue } from "../lib/dates";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../lib/api";
 import EventCard from "../components/EventCard";
+import { usePageTitle } from "../lib/usePageTitle";
 
 const PAGE_SIZE = 10;
 const DEBOUNCE_MS = 300;
@@ -11,6 +12,7 @@ const DEBOUNCE_MS = 300;
 type Result = { key: string; data?: Page<GatherEvent>; error?: string };
 
 export default function EventList() {
+  usePageTitle("Upcoming events");
   const [params, setParams] = useSearchParams();
 
   // --- state that lives in the URL ---

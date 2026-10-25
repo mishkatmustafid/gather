@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import FormField from "../components/FormField";
 import { api, ApiError } from "../lib/api";
 import type { User } from "../lib/types";
+import { usePageTitle } from "../lib/usePageTitle";
 
 type Values = { display_name: string; email: string; password: string };
 type Errors = Partial<Record<keyof Values, string>>;
@@ -25,6 +26,7 @@ function validate(v: Values): Errors {
 }
 
 export default function Register() {
+  usePageTitle("Sign up");
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();

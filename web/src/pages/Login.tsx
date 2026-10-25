@@ -3,12 +3,14 @@ import { useAuth } from "../auth/AuthContext";
 import { useState, type FormEvent } from "react";
 import { ApiError } from "../lib/api";
 import FormField from "../components/FormField";
+import { usePageTitle } from "../lib/usePageTitle";
 
 function safeNext(next: string | null) {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
 }
 
 export default function Login() {
+  usePageTitle("Log in");
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();

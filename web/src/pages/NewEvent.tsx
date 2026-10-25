@@ -3,8 +3,10 @@ import EventForm from "../components/EventForm";
 import { emptyEventValues, type EventPayload } from "../lib/eventForm";
 import { api } from "../lib/api";
 import type { GatherEvent } from "../lib/types";
+import { usePageTitle } from "../lib/usePageTitle";
 
 export default function NewEvent() {
+  usePageTitle("New event");
   const navigate = useNavigate();
 
   async function create(payload: EventPayload) {
