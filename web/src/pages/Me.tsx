@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useRef, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import EventCard from "../components/EventCard";
-import { api, ApiError } from "../lib/api";
+import { errorMessage, fetchMyEvents, keys } from "../lib/queries";
 import type { GatherEvent } from "../lib/types";
 import { usePageTitle } from "../lib/usePageTitle";
 
@@ -11,13 +12,6 @@ const TABS: { id: Tab; label: string; role: "hosting" | "attending" }[] = [
   { id: "hosting", label: "Hosting", role: "hosting" },
   { id: "going", label: "Going", role: "attending" },
 ];
-
-type Result = {
-  key: string;
-  upcoming?: GatherEvent[];
-  past?: GatherEvent[];
-  error?: string;
-};
 
 // Split when the response arrives (not during render), so the page renders the same every time
 function splitByTime(events: GatherEvent[]) {
@@ -43,32 +37,12 @@ export default function Me() {
     setParams(next === "hosting" ? {} : { tab: next }, { replace: true });
   }
 
-  // ---- data ----
-  const [reloads, setReloads] = useState(0);
-  const requestKey = `${apiRole}|${reloads}`;
-  const [result, setResult] = useState<Result>({ key: "" });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const key = `${apiRole}|${reloads}`;
-    api<GatherEvent[]>(`/me/events?role=${apiRole}`, {
-      signal: controller.signal,
-    })
-      .then((events) => setResult({ key, ...splitByTime(events) }))
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        setResult({
-          key,
-          error:
-            err instanceof ApiError
-              ? err.message
-              : "Couldn't reach the server. Check your connection.",
-        });
-      });
-    return () => controller.abort();
-  }, [apiRole, reloads]);
-
-  const current = result.key === requestKey ? result : null;
+  // ---- data: each tab has its own cache entry, so switching back is instant ----
+  const { data, error, isPending, refetch, isRefetching } = useQuery({
+    queryKey: keys.myEvents(apiRole),
+    queryFn: ({ signal }) => fetchMyEvents(apiRole, signal),
+    select: splitByTime, // derive upcoming/past from the cached list
+  });
 
   // ---- keyboard support for the tab list (WAI-ARIA tabs pattern) ----
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({
@@ -91,8 +65,8 @@ export default function Me() {
     tabRefs.current[next]?.focus();
   }
 
-  const upcoming = current?.upcoming ?? [];
-  const past = current?.past ?? [];
+  const upcoming = data?.upcoming ?? [];
+  const past = data?.past ?? [];
 
   return (
     <div className='py-4'>
@@ -135,50 +109,48 @@ export default function Me() {
         role='tabpanel'
         id={`panel-${tab}`}
         aria-labelledby={`tab-${tab}`}
-        aria-busy={!current}
+        aria-busy={isPending}
         tabIndex={0}
         className={`mt-6 rounded ${focusRing}`}
       >
-        {!current && <p className='text-black/60'>Loading…</p>}
+        {isPending && <p className='text-black/60'>Loading…</p>}
 
-        {current?.error && (
+        {error && !data && (
           <div
             role='alert'
             className='rounded border border-red-300 bg-red-50 p-4 text-red-800'
           >
-            <p>{current.error}</p>
+            <p>{errorMessage(error)}</p>
             <button
               type='button'
-              onClick={() => setReloads((n) => n + 1)}
+              onClick={() => refetch()}
+              disabled={isRefetching}
               className={`mt-2 min-h-11 rounded border border-red-400 px-3 ${focusRing}`}
             >
-              Try again
+              {isRefetching ? "Retrying…" : "Try again"}
             </button>
           </div>
         )}
 
-        {current &&
-          !current.error &&
-          upcoming.length === 0 &&
-          past.length === 0 && (
-            <div className='rounded border border-dashed border-black/20 p-6 text-center'>
-              {tab === "hosting" ? (
-                <p>
-                  You aren't hosting anything yet.{" "}
-                  <Link to='/events/new' className='text-[#3B5BDB] underline'>
-                    Create an event
-                  </Link>
-                </p>
-              ) : (
-                <p>
-                  Nothing booked yet.{" "}
-                  <Link to='/' className='text-[#3B5BDB] underline'>
-                    Browse events
-                  </Link>
-                </p>
-              )}
-            </div>
-          )}
+        {data && upcoming.length === 0 && past.length === 0 && (
+          <div className='rounded border border-dashed border-black/20 p-6 text-center'>
+            {tab === "hosting" ? (
+              <p>
+                You aren't hosting anything yet.{" "}
+                <Link to='/events/new' className='text-[#3B5BDB] underline'>
+                  Create an event
+                </Link>
+              </p>
+            ) : (
+              <p>
+                Nothing booked yet.{" "}
+                <Link to='/' className='text-[#3B5BDB] underline'>
+                  Browse events
+                </Link>
+              </p>
+            )}
+          </div>
+        )}
 
         {upcoming.length > 0 && (
           <section aria-labelledby='upcoming-heading'>
