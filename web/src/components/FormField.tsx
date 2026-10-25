@@ -17,7 +17,7 @@ export default function FormField({ id, label, error, ...input }: Props) {
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
-        className={`rounded border px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB]${error ? "borde-red-600" : "border-black/20"}`}
+        className={`rounded border px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B5BDB] ${error ? "border-red-600" : "border-black/20"}`}
         {...input}
       />
       {error && (
