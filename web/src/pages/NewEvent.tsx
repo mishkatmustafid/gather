@@ -1,21 +1,33 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import EventForm from "../components/EventForm";
-import { emptyEventValues, type EventPayload } from "../lib/eventForm";
 import { api } from "../lib/api";
+import { emptyEventValues, type EventPayload } from "../lib/eventForm";
+import { keys } from "../lib/queries";
 import type { GatherEvent } from "../lib/types";
 import { usePageTitle } from "../lib/usePageTitle";
 
 export default function NewEvent() {
   usePageTitle("New event");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
 
-  async function create(payload: EventPayload) {
-    const event = await api<GatherEvent>("/events", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    navigate(`/events/${event.id}`, { replace: true }); // Back skips the empty form
-  }
+  const create = useMutation({
+    mutationFn: (payload: EventPayload) =>
+      api<GatherEvent>("/events", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: (event) => {
+      // Seed the detail page's cache so it opens without a loading state
+      queryClient.setQueryData(keys.event(event.id, user?.id ?? "anon"), event);
+      queryClient.invalidateQueries({ queryKey: keys.eventLists }); // not keys.events: that would refetch the detail we just seeded
+      queryClient.invalidateQueries({ queryKey: keys.me });
+      navigate(`/events/${event.id}`, { replace: true });
+    },
+  });
 
   return (
     <div className='py-4'>
@@ -24,7 +36,9 @@ export default function NewEvent() {
         initial={emptyEventValues}
         submitLabel='Create event'
         submittingLabel='Creating…'
-        onSubmit={create}
+        onSubmit={async (payload) => {
+          await create.mutateAsync(payload);
+        }}
         onCancel={() => navigate(-1)}
       />
     </div>
