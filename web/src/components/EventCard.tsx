@@ -16,11 +16,15 @@ export default function EventCard({ event }: { event: GatherEvent }) {
             {formatCardDate(event.starts_at)}
           </time>
         </p>
-        <h2 className='mt-1 text-lg font-bold'>{event.title}</h2>
-        <p className='text-black/70'>{event.location}</p>
+        <h2 className='mt-1 text-lg font-bold [overflow-wrap:anywhere]'>
+          {event.title}
+        </h2>
+        <p className='text-black/70 [overflow-wrap:anywhere]'>
+          {event.location}
+        </p>
         <p className='mt-2 text-sm'>
           {full ? (
-            <span className='font-medium text-[#E8590C]'>
+            <span className='font-medium text-[#C2410C]'>
               Full · {event.rsvp_count} / {event.capacity}
             </span>
           ) : (
