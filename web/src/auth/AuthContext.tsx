@@ -7,6 +7,8 @@ import {
 } from "react";
 import { api, hasToken, setToken } from "../lib/api";
 import type { User } from "../lib/types";
+import { queryClient } from "../lib/queryClient";
+import { keys } from "../lib/queries";
 
 type AuthState = {
   user: User | null;
@@ -43,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     setToken(null);
+    queryClient.removeQueries({ queryKey: keys.me }); // drop the previous user's private data
     setUser(null);
   }
 
