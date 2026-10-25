@@ -162,13 +162,15 @@ export default function EventDetail() {
     <article className='py-4'>
       <BackLink />
 
-      <h1 className='mt-3 text-3xl font-bold'>{event.title}</h1>
+      <h1 className='mt-3 text-3xl font-bold [overflow-wrap:anywhere]'>
+        {event.title}
+      </h1>
       <p className='mt-2 text-lg'>
         <time dateTime={event.starts_at}>
           {formatEventRange(event.starts_at, event.ends_at)}
         </time>
       </p>
-      <p className='text-black/70'>{event.location}</p>
+      <p className='text-black/70 [overflow-wrap:anywhere]'>{event.location}</p>
       {isOwner && (
         <p className='mt-1 text-sm font-medium text-[#3B5BDB]'>
           You're hosting this event
@@ -176,7 +178,7 @@ export default function EventDetail() {
       )}
 
       {event.description && (
-        <p className='mt-6 max-w-prose whitespace-pre-line'>
+        <p className='mt-6 max-w-prose whitespace-pre-line [overflow-wrap:anywhere]'>
           {event.description}
         </p>
       )}
@@ -194,7 +196,7 @@ export default function EventDetail() {
         </div>
         <p className='mt-2'>
           {full ? (
-            <span className='font-medium text-[#E8590C]'>
+            <span className='font-medium text-[#C2410C]'>
               Full · {event.rsvp_count} / {event.capacity} going
             </span>
           ) : (
@@ -220,7 +222,7 @@ export default function EventDetail() {
           </Link>
         ) : event.i_am_going ? (
           <div className='flex flex-wrap items-center gap-3'>
-            <span className='font-medium text-[#2B8A3E]'>✓ You're going</span>
+            <span className='font-medium text-[#24763A]'>✓ You're going</span>
             <button
               type='button'
               disabled={pending !== null}
@@ -231,7 +233,7 @@ export default function EventDetail() {
             </button>
           </div>
         ) : full ? (
-          <p className='font-medium text-[#E8590C]'>This event is full.</p>
+          <p className='font-medium text-[#C2410C]'>This event is full.</p>
         ) : (
           <button
             type='button'
