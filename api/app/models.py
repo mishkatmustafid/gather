@@ -39,6 +39,7 @@ class Event(Base):
     title: Mapped[str]
     description: Mapped[str | None]
     location: Mapped[str]
+    image_url: Mapped[str | None]
     starts_at: Mapped[datetime] = mapped_column(TS)
     ends_at: Mapped[datetime] = mapped_column(TS)
     capacity: Mapped[int]
