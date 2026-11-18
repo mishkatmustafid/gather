@@ -106,12 +106,12 @@ describe("EventForm", () => {
   it("disables the button while saving to block double submits", async () => {
     const onSubmit = vi.fn(() => new Promise<void>(() => {})); // never resolves
     const { user, submit } = setup(onSubmit);
-    const button = screen.getByRole("button", { name: /creating event/i });
 
     await fillValid(user);
 
     await submit();
 
+    const button = screen.getByRole("button", { name: /creating event/i });
     expect(button).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: "Create event" }),
