@@ -1,6 +1,6 @@
 # Gather
 
-[![CI](https://github.com/<your-username>/gather/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-username>/gather/actions/workflows/ci.yml)
+[![CI](https://github.com/mishkatmustafid/gather/actions/workflows/ci.yml/badge.svg)](https://github.com/mishkatmustafid/gather/actions/workflows/ci.yml)
 
 A small community events board: people sign up, post events, and RSVP to each other's.
 Full-stack practice project covering relational schema design, migrations, REST API design,
